@@ -2,9 +2,11 @@ import os
 import cv2
 import numpy as np
 from tqdm import tqdm
+import pickle
+import matplotlib.pyplot as plt
 
 # Don't want to rebuild the data every time
-REBUILD_DATA = True
+REBUILD_DATA = False
 
 class DogsVSCats():
     IMG_SIZE = 50
@@ -12,6 +14,7 @@ class DogsVSCats():
     DOGS = "PetImages/Dog"
     LABELS = {CATS: 0, DOGS: 1}
     training_data = []
+    onehotvector = []
     catcount = 0
     dogcount = 0
 
@@ -31,8 +34,8 @@ class DogsVSCats():
                         img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
                         # resizing the images
                         img = cv2.resize(img, (self.IMG_SIZE, self.IMG_SIZE))
-                        # 
-                        self.training_data.append([np.array(img, dtype=object), np.eye(2)[self.LABELS[label]]])
+
+                        self.training_data.append([np.array(img ,dtype = float), np.eye(2, dtype=float)[self.LABELS[label]]])
 
                         if label == self.CATS:
                             self.catcount += 1
@@ -43,9 +46,13 @@ class DogsVSCats():
         
         #Shuffles the data in place
         np.random.shuffle(self.training_data)
-        print(self.training_data)
         # save the data
-        np.save("dddddd.npy", self.training_data)
+        with open("training_data.pkl", "wb") as f:
+            pickle.dump(self.training_data, f)
+
+
+        
+        #np.save("training_data.npy", self.training_data)
 
         print("Cats", self.catcount)
         print("Dogs", self.dogcount)
@@ -54,8 +61,14 @@ if REBUILD_DATA:
     dogsvscats = DogsVSCats()
     dogsvscats.make_training_data()
 
+training_data = np.load("training_data.pkl", allow_pickle=True)
+print(len(training_data))
 
-#training_data = np.load("dddddd.npy")
+plt.imshow(training_data[20][0])
+plt.show()
 
-# # np.load("training_data.npy", allow_pickle=True ,encoding='latin1')
-#print(len(training_data))
+#training_data = np.load("training_data.npy")
+
+# for key in training_data:
+#     print(training_data[key]) test
+#     break

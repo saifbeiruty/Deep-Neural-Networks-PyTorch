@@ -1,74 +1,86 @@
-import os
-import cv2
-import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 from tqdm import tqdm
-import pickle
-import matplotlib.pyplot as plt
-
-# Don't want to rebuild the data every time
-REBUILD_DATA = False
-
-class DogsVSCats():
-    IMG_SIZE = 50
-    CATS = "PetImages/Cat"
-    DOGS = "PetImages/Dog"
-    LABELS = {CATS: 0, DOGS: 1}
-    training_data = []
-    onehotvector = []
-    catcount = 0
-    dogcount = 0
-
-    def make_training_data(self):
-        #Label here is CATS and then in the second loop DOGS. CATS = "PetImages/Cat"
-        for label in self.LABELS:
-            print(label)
-            #tqdm is just a progress bar
-            #os.listdir(path) makes a list of all the files inside the path
-            # This is the picture of cats and then dogs
-            for f in tqdm(os.listdir(label)):
-                if "jpg" in f:
-                    try:
-                        # Getting the path where the images are located PetImages/Cat/123.jpg
-                        path = os.path.join(label, f)
-                        # Changing the images to grey scale
-                        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-                        # resizing the images
-                        img = cv2.resize(img, (self.IMG_SIZE, self.IMG_SIZE))
-
-                        self.training_data.append([np.array(img ,dtype = float), np.eye(2, dtype=float)[self.LABELS[label]]])
-
-                        if label == self.CATS:
-                            self.catcount += 1
-                        elif label == self.DOGS:
-                            self.dogcount += 1
-                    except Exception as e:
-                        pass
-        
-        #Shuffles the data in place
-        np.random.shuffle(self.training_data)
-        # save the data
-        with open("training_data.pkl", "wb") as f:
-            pickle.dump(self.training_data, f)
-
-
-        
-        #np.save("training_data.npy", self.training_data)
-
-        print("Cats", self.catcount)
-        print("Dogs", self.dogcount)
-
-if REBUILD_DATA:
-    dogsvscats = DogsVSCats()
-    dogsvscats.make_training_data()
+import numpy as np
 
 training_data = np.load("training_data.pkl", allow_pickle=True)
-print(len(training_data))
 
-plt.imshow(training_data[20][0])
-plt.show()
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # 1 input, 32 outputs(filters) with 5 pixel kernel size
+        self.conv1 = nn.Conv2d(1, 32, 5)
+        self.conv2 = nn.Conv2d(32, 64, 5)
+        self.conv3 = nn.Conv2d(64, 128, 5)
 
-#training_data = np.load("training_data.npy")
+        x = torch.randn(50,50).view(-1,1,50,50)
+        self._to_linear = None
+        self.convs(x)
 
-# for key in training_data:
-#     print(training_data[key]) test
-#     break
+        self.fc1 = nn.Linear(self._to_linear, 512)
+        self.fc2 = nn.Linear(512, 2)
+
+    def convs(self, x):
+        x = F.max_pool2d(F.relu(self.conv1(x)), (2,2))
+        x = F.max_pool2d(F.relu(self.conv2(x)), (2,2))
+        x = F.max_pool2d(F.relu(self.conv3(x)), (2,2))
+
+        if self._to_linear is None:
+            print(x[0].shape[0]*x[0].shape[1]*x[0].shape[2])
+            self._to_linear = x[0].shape[0]*x[0].shape[1]*x[0].shape[2]
+        return x
+
+    def forward(self, x):
+        x = self.convs(x)
+        x = x.view(-1, self._to_linear)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return F.softmax(x, dim=1)
+
+net = Net()
+
+optimizer = optim.Adam(net.parameters(), lr=0.001)
+loss_function = nn.MSELoss()
+
+X = torch.Tensor([i[0] for i in training_data]).view(-1,50,50)
+X = X/255.0 
+y = torch.Tensor([i[1] for i in training_data])
+
+VAL_PCT = 0.1
+val_size = int(len(X)*VAL_PCT)
+
+train_X = X[:-val_size]
+train_y = y[:-val_size]
+
+test_X = X[-val_size:]
+test_y = y[-val_size:]
+
+BATCH_SIZE = 100
+EPOCHS = 1
+
+for epoch in range(EPOCHS):
+    for i in tqdm(range(0, len(train_X), BATCH_SIZE)):
+        batch_X = train_X[i:i+BATCH_SIZE].view(-1,1,50,50)
+        batch_y = train_y[i:i+BATCH_SIZE]
+
+        net.zero_grad()
+        outputs = net(batch_X)
+        loss = loss_function(outputs, batch_y)
+        loss.backward()
+        optimizer.step()
+
+print(loss)
+
+correct = 0
+total = 0
+with torch.no_grad():
+    for i in tqdm(range(len(test_X))):
+        real_class = torch.argmax(test_y[i])
+        net_out = net(test_X[i].view(-1,1,50,50))[0]
+        predicted_class = torch.argmax(net_out)
+        if predicted_class == real_class:
+            correct += 1
+        total += 1
+print("Accuracy:", round(correct/total, 3))
